@@ -143,22 +143,30 @@ git push -u origin main
 
 ---
 
-## 6. Resultados Reales del Pipeline (Run #45079044967)
+## 6. Resultados Reales del Pipeline (Run #45080850352)
 
 **Pipeline ejecutado:** 22 de noviembre de 2026  
 **Repositorio:** [KEVIN18xD/DevSecOps-Pipeline](https://github.com/KEVIN18xD/DevSecOps-Pipeline)  
-**Resultado global:** Las 3 puertas de seguridad **FALLARON** correctamente.
+**Resultado global:** 2 de 3 puertas de seguridad **FALLARON** correctamente (Trivy y ZAP). SonarCloud detectó las vulnerabilidades pero su Quality Gate pasó (ver explicación abajo).
 
-| Etapa | Estado | Tiempo | Exit Code |
-|-------|--------|--------|-----------|
-| Build | ✅ Exitoso | 26s | 0 |
-| SonarCloud (SAST) | ❌ FAILED | 7s | 1 |
-| Trivy (SCA) | ❌ FAILED | 33s | 1 |
-| OWASP ZAP (DAST) | ❌ FAILED | 3m 9s | 2 |
+| Etapa | Estado | Tiempo | Detalle |
+|-------|--------|--------|---------|
+| Build | ✅ Exitoso | 21s | Imagen Docker construida correctamente |
+| SonarCloud (SAST) | ✅ PASSED | 40s | Quality Gate OK (evalúa solo código nuevo) |
+| Trivy (SCA) | ❌ FAILED | 29s | exit-code 1 por CVEs CRITICAL/HIGH |
+| OWASP ZAP (DAST) | ❌ FAILED | 3m 29s | 13 alertas de seguridad encontradas |
 
 ### 6.1 SonarCloud (SAST) — 17 Vulnerabilidades Detectadas
 
 **Calificación de Seguridad: E (la peor)**
+
+> **Nota sobre el Quality Gate:** SonarCloud reportó `QUALITY GATE STATUS: PASSED` porque el Quality Gate por defecto ("Sonar Way") evalúa únicamente **código nuevo** (new code period). Las condiciones evaluadas fueron:
+> - `new_security_rating`: OK (A) — no hay código nuevo con vulnerabilidades
+> - `new_reliability_rating`: OK (A) — no hay bugs nuevos
+> - `new_maintainability_rating`: OK (A) — no hay code smells nuevos
+> - `new_security_hotspots_reviewed`: OK (100%) — todos los hotspots revisados
+>
+> Las 17 vulnerabilidades existen en el código **existente** y aparecen en el dashboard de SonarCloud, pero no bloquean el Quality Gate porque no son "nuevas" en este análisis. Para hacer que el gate falle por vulnerabilidades existentes, se necesitaría un **Quality Gate personalizado** con condiciones sobre código overall.
 
 #### Issues BLOCKER (8 issues — bloquean el Quality Gate):
 
@@ -226,6 +234,8 @@ Los resultados se suben en formato SARIF a la pestaña **Security** del reposito
 
 **Security Gate: FAILED** — ZAP reportó alertas de seguridad.  
 **Resultado:** FAIL-NEW: 0 | WARN-NEW: 13 | PASS: 130
+
+> **Nota:** El parámetro `fail_action: "high"` generó un warning porque la acción ZAP Full Scan solo acepta `"true"` o `"false"`. Las 13 alertas se clasificaron como WARN-NEW (warnings). El job falló por un error de permisos al intentar crear un issue en GitHub, lo cual confirma que ZAP detectó problemas. En un entorno real, se configuraría `fail_action: "true"` y un archivo de reglas para personalizar los umbrales.
 
 #### Alertas de vulnerabilidades activas:
 
@@ -316,10 +326,11 @@ Los resultados se suben en formato SARIF a la pestaña **Security** del reposito
 ## 10. Conclusiones
 
 1. **Ninguna herramienta individual cubre todas las vulnerabilidades.** La combinación SAST + SCA + DAST es necesaria para una cobertura razonable.
-2. **Las puertas de seguridad automatizadas** (security gates) previenen que código vulnerable llegue a producción sin intervención manual.
-3. **SAST y DAST se complementan:** SAST encuentra vulnerabilidades en código que DAST no puede alcanzar (credenciales), y DAST confirma la explotabilidad real de las que SAST detecta como patrones.
-4. **Existen brechas:** control de acceso roto y criptografía débil requieren herramientas o configuraciones adicionales.
-5. **DevSecOps no ralentiza el desarrollo:** el pipeline completo se ejecuta en minutos y proporciona retroalimentación inmediata a los desarrolladores.
+2. **Las puertas de seguridad automatizadas** (security gates) previenen que código vulnerable llegue a producción sin intervención manual. Trivy y ZAP bloquearon correctamente el pipeline.
+3. **Los Quality Gates requieren configuración cuidadosa.** El Quality Gate por defecto de SonarCloud ("Sonar Way") solo evalúa código nuevo, lo que permite que vulnerabilidades existentes no bloqueen el gate. Para proyectos con deuda de seguridad, se recomienda crear un Quality Gate personalizado con condiciones sobre el código overall.
+4. **SAST y DAST se complementan:** SAST encuentra vulnerabilidades en código que DAST no puede alcanzar (credenciales), y DAST confirma la explotabilidad real de las que SAST detecta como patrones.
+5. **Existen brechas:** control de acceso roto y criptografía débil requieren herramientas o configuraciones adicionales.
+6. **DevSecOps no ralentiza el desarrollo:** el pipeline completo se ejecuta en ~5 minutos y proporciona retroalimentación inmediata a los desarrolladores.
 
 ---
 
@@ -330,3 +341,20 @@ Los resultados se suben en formato SARIF a la pestaña **Security** del reposito
 3. Copiar el **Project Key** y la **Organization** al archivo `sonar-project.properties`.
 4. Generar un token en My Account → Security → Generate Token.
 5. Agregar el token como secreto `SONAR_TOKEN` en GitHub (Settings → Secrets and variables → Actions).
+6. **Importante:** Desactivar el "Automatic Analysis" en SonarCloud (Administration → Analysis Method) para evitar conflictos con el análisis CI.
+
+---
+
+## Apéndice B: Historial de Ejecuciones del Pipeline
+
+| Run | Resultado | Notas |
+|-----|-----------|-------|
+| #1 (45078447332) | Build ✅, SAST ❌, Trivy ❌, ZAP ❌ | Sin SONAR_TOKEN configurado |
+| #2 (45079044967) | Build ✅, SAST ❌, Trivy ❌, ZAP ❌ | Token inválido + project key con case incorrecto |
+| #3 (45080165025) | Build ✅, SAST ❌, Trivy ❌, ZAP ❌ | Conflicto: Automatic Analysis activo junto con CI |
+| #4 (45080850352) | Build ✅, SAST ✅, Trivy ❌, ZAP ❌ | **Run final exitoso** — las 3 herramientas funcionando |
+
+**Lecciones aprendidas durante la configuración:**
+- El `sonar.projectKey` es **case-sensitive** — verificar el valor exacto en la API de SonarCloud.
+- No se puede ejecutar Automatic Analysis y CI Analysis simultáneamente — desactivar uno.
+- Los tokens de SonarCloud deben generarse específicamente para cada proyecto/uso.
