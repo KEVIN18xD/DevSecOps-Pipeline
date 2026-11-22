@@ -1,0 +1,130 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  security-events: write
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Stage 1: Build the Docker image and share it as an artifact
+  # ─────────────────────────────────────────────────────────────────────────────
+  Build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t vuln-app ./app
+
+      - name: Save Docker image
+        run: docker save vuln-app -o vuln-app.tar
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vuln-app-image
+          path: vuln-app.tar
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Stage 2a: SAST — SonarCloud static analysis
+  # Security gate: SonarCloud Quality Gate (fails on Blocker issues)
+  # ─────────────────────────────────────────────────────────────────────────────
+  SonarQube-SAST:
+    needs: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Stage 2b: SCA + Container Scan — Trivy
+  # Security gate: exit-code 1 → fail on CRITICAL or HIGH CVEs
+  # ─────────────────────────────────────────────────────────────────────────────
+  Container-Image-Scan:
+    needs: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vuln-app-image
+
+      - name: Load Docker image
+        run: docker load -i vuln-app.tar
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: "vuln-app"
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"
+          format: "sarif"
+          output: "trivy-results.sarif"
+
+      - name: Upload Trivy SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Stage 3: DAST — OWASP ZAP full scan
+  # Security gate: fail_action high → fail on any HIGH-risk alert
+  # ─────────────────────────────────────────────────────────────────────────────
+  ZAP-DAST:
+    needs: [SonarQube-SAST, Container-Image-Scan]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vuln-app-image
+
+      - name: Load Docker image
+        run: docker load -i vuln-app.tar
+
+      - name: Start application container
+        run: docker run -d --name vuln-app --network host vuln-app
+
+      - name: Wait for application to be ready
+        run: |
+          for i in $(seq 1 15); do
+            if curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/ | grep -q 200; then
+              echo "App is ready!"
+              exit 0
+            fi
+            echo "Waiting... attempt $i"
+            sleep 2
+          done
+          echo "App failed to start"
+          docker logs vuln-app
+          exit 1
+
+      - name: ZAP Full Scan
+        uses: zaproxy/action-full-scan@v0.13.0
+        with:
+          target: "http://localhost:8000"
+          fail_action: "high"
+          allow_issue_creation: false
+          cmd_options: "-j"
+
+      - name: Upload ZAP report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-report
+          path: report_html.html
