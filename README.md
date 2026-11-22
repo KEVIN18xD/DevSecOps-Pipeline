@@ -143,29 +143,71 @@ git push -u origin main
 
 ---
 
-## 6. Resultados Esperados por Herramienta
+## 6. Resultados Reales del Pipeline (Run #45079044967)
 
-### 6.1 SonarCloud (SAST)
+**Pipeline ejecutado:** 22 de noviembre de 2026  
+**Repositorio:** [KEVIN18xD/DevSecOps-Pipeline](https://github.com/KEVIN18xD/DevSecOps-Pipeline)  
+**Resultado global:** Las 3 puertas de seguridad **FALLARON** correctamente.
 
-**Quality Gate: FAILED** — 6 issues de tipo Blocker:
+| Etapa | Estado | Tiempo | Exit Code |
+|-------|--------|--------|-----------|
+| Build | ✅ Exitoso | 26s | 0 |
+| SonarCloud (SAST) | ❌ FAILED | 7s | 1 |
+| Trivy (SCA) | ❌ FAILED | 33s | 1 |
+| OWASP ZAP (DAST) | ❌ FAILED | 3m 9s | 2 |
 
-| Hallazgo | Línea | Regla |
-|----------|-------|-------|
-| Hardcoded API_KEY (`sk-prod-...`) | ~24 | S6418 |
-| XSS Reflejado en `/search` | ~72 | S5131 |
-| XSS en `/hash` (echo de input) | ~165 | S5131 |
-| SQL Injection en `/login` | ~101 | S3649 |
-| Command Injection en `/ping` | ~136 | S4721 |
-| Path Traversal en `/file` | ~152 | S4797 |
+### 6.1 SonarCloud (SAST) — 17 Vulnerabilidades Detectadas
+
+**Calificación de Seguridad: E (la peor)**
+
+#### Issues BLOCKER (8 issues — bloquean el Quality Gate):
+
+| Archivo | Línea | Regla | Descripción |
+|---------|-------|-------|-------------|
+| main.py | 22 | S6418 | **Hardcoded API_KEY** (`sk-prod-...`) detectado |
+| main.py | 63 | S5131 | **Reflected XSS** via HTTP request en `search()` |
+| main.py | 95 | S5131 | **Reflected XSS** via HTML form en `login()` |
+| main.py | 121 | S2076 | **Command Injection** via HTTP request en `ping()` |
+| main.py | 128 | S5131 | **Reflected XSS** via HTTP request en `ping()` |
+| main.py | 141 | S2083 | **Path Traversal** via HTTP request en `read_file()` |
+| main.py | 145 | S5131 | **Reflected XSS** via HTTP request en `read_file()` |
+| main.py | 169 | S5131 | **Reflected XSS** via HTML form en `hash_text()` |
+
+#### Issues CRITICAL (2 issues):
+
+| Archivo | Línea | Regla | Descripción |
+|---------|-------|-------|-------------|
+| Dockerfile | 13 | S6470 | `COPY .` puede incluir datos sensibles |
+| main.py | 168 | S4790 | Uso de **hashing inseguro** (MD5) |
+
+#### Issues MAJOR (6 issues):
+
+| Archivo | Línea | Regla | Descripción |
+|---------|-------|-------|-------------|
+| ci-cd.yml | 9 | S8233 | Permisos write a nivel de workflow (debería ser por job) |
+| ci-cd.yml | 47 | S7637 | Dependencia sin SHA hash completo (supply chain risk) |
+| ci-cd.yml | 69 | S7637 | Dependencia sin SHA hash completo |
+| ci-cd.yml | 118 | S7637 | Dependencia sin SHA hash completo |
+| Dockerfile | 10 | S8541 | pip install sin `--only-binary :all:` |
+| Dockerfile | 10 | S8544 | Dependencias sin lock de versiones resueltas |
+
+#### Issue MINOR (1 issue):
+
+| Archivo | Línea | Regla | Descripción |
+|---------|-------|-------|-------------|
+| Dockerfile | 4 | S6471 | Imagen ejecuta como **root** por defecto |
 
 **No detectados por SonarCloud:**
-- `SECRET_KEY` y `DB_PASS` (no coinciden con patrones de API keys)
-- Uso de MD5 (CWE-327)
-- Control de acceso roto (CWE-284)
+- `SECRET_KEY` y `DB_PASS` (no coinciden con patrones de API keys conocidos)
+- Control de acceso roto en `/admin` (CWE-284)
+
+**Dato notable:** SonarCloud SÍ detectó el uso de MD5 (S4790, línea 168) como CRITICAL — una mejora respecto a versiones anteriores.
 
 ### 6.2 Trivy (SCA + Container Scan)
 
-**Security Gate: FAILED** — Múltiples CVEs CRITICAL y HIGH.
+**Security Gate: FAILED** — `exit-code: 1` activado por CVEs CRITICAL/HIGH.
+
+Los resultados se suben en formato SARIF a la pestaña **Security** del repositorio en GitHub. Las vulnerabilidades incluyen:
 
 **Dependencias Python:**
 | Paquete | CVE | Severidad |
@@ -178,20 +220,37 @@ git push -u origin main
 
 **Paquetes del sistema operativo (python:3.8-slim):**
 - Múltiples CVEs en libsqlite3, gpgv, libexpat1, libpam, ncurses, perl-base, etc.
+- **SonarCloud también detectó 63 dependency risks (calificación D).**
 
-### 6.3 OWASP ZAP (DAST)
+### 6.3 OWASP ZAP (DAST) — 13 Alertas
 
-**Security Gate: FAILED** — 5 alertas HIGH:
+**Security Gate: FAILED** — ZAP reportó alertas de seguridad.  
+**Resultado:** FAIL-NEW: 0 | WARN-NEW: 13 | PASS: 130
 
-| Alerta | Riesgo | URL |
-|--------|--------|-----|
-| Cross-Site Scripting (Reflected) | HIGH | `/search?q=` |
-| DOM-Based XSS | HIGH | `/search?q=` |
-| SQL Injection | HIGH | `/login` |
-| Remote OS Command Injection | HIGH | `/ping?host=` |
-| Path Traversal | HIGH | `/file?name=` |
+#### Alertas de vulnerabilidades activas:
 
-Además: 5 Medium, 5 Low, 3 Informational.
+| Alerta | Instancias | Riesgo |
+|--------|------------|--------|
+| **Cross Site Scripting (Reflected)** | 4 | HIGH |
+| **Cross Site Scripting (DOM Based)** | 5 | HIGH |
+| **SQL Injection** | 2 | HIGH |
+| **Remote OS Command Injection** | 1 | HIGH |
+| **Path Traversal** | 1 | HIGH |
+| **Source Code Disclosure - File Inclusion** | 2 | MEDIUM |
+
+#### Alertas de configuración:
+
+| Alerta | Instancias | Riesgo |
+|--------|------------|--------|
+| Missing Anti-clickjacking Header | 10 | MEDIUM |
+| X-Content-Type-Options Header Missing | 10 | MEDIUM |
+| Content Security Policy (CSP) Header Not Set | 10 | MEDIUM |
+| Permissions Policy Header Not Set | 10 | LOW |
+| HTTP Only Site | 1 | LOW |
+| Absence of Anti-CSRF Tokens | 2 | MEDIUM |
+| Cross-Origin-Resource-Policy Header Missing | 12 | LOW |
+
+**Reporte completo:** Disponible como artefacto `zap-report` en GitHub Actions.
 
 ---
 
@@ -207,7 +266,7 @@ Además: 5 Medium, 5 Low, 3 Informational.
 | Control de acceso roto | 284 | ❌ | ❌ | ❌ |
 | Inyección de comandos | 78 | ✅ | ❌ | ✅ |
 | Path Traversal | 22 | ✅ | ❌ | ✅ |
-| Criptografía insegura (MD5) | 327 | ❌ | ❌ | ❌ |
+| Criptografía insegura (MD5) | 327 | ✅ (CRITICAL) | ❌ | ❌ |
 | Dependencias vulnerables | — | ❌ | ✅ | ❌ |
 | Imagen base EOL | — | ❌ | ✅ | ❌ |
 
@@ -216,8 +275,8 @@ Además: 5 Medium, 5 Low, 3 Informational.
 1. **Detección incompleta de secretos:** SonarCloud detectó `API_KEY` pero no `SECRET_KEY` ni `DB_PASS`.
    - **Recomendación:** Agregar Gitleaks o TruffleHog al pipeline.
 
-2. **Sin reglas de criptografía:** Ninguna herramienta detectó el uso de MD5.
-   - **Recomendación:** Agregar Semgrep o Bandit con reglas de crypto.
+2. **Criptografía detectada parcialmente:** SonarCloud detectó MD5 como CRITICAL (S4790), pero solo ZAP o herramientas adicionales pueden verificar su impacto en contexto.
+   - **Recomendación:** Agregar Semgrep o Bandit con reglas específicas de crypto para cobertura completa.
 
 3. **Control de acceso no detectado:** ZAP no puede detectar autorización rota sin un contexto de autenticación.
    - **Recomendación:** Configurar ZAP con escaneo autenticado y scripts de autorización.
